@@ -2,6 +2,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ToolWeightMode } from './core/types.js';
+import { bindMyChannel, startYouTubeOAuthFlow } from './providers/oauth-studio.js';
 import { CTDO_VERSION, startHttpMcpServer, startStdioMcpServer } from './server.js';
 
 // Zero-dependency lightweight .env loader (saves dotenv package bloat!)
@@ -30,6 +31,22 @@ async function main() {
   loadDotEnvIfPresent();
 
   const argv = process.argv.slice(2);
+  if (argv[0] === 'bind' && argv[1]) {
+    const res = await bindMyChannel(argv[1]);
+    console.log(JSON.stringify(res, null, 2));
+    process.exit(0);
+  }
+
+  if (argv[0] === 'login' || argv[0] === 'auth') {
+    const secretFile = argv.find((a) => a.startsWith('--client-secret='))?.split('=')[1];
+    const flow = await startYouTubeOAuthFlow({ clientSecretFile: secretFile });
+    console.log('\n🔐 Open this URL in your browser to connect your YouTube Studio channel:\n');
+    console.log(flow.authUrl);
+    console.log('\nWaiting up to 5 minutes for Google OAuth callback on', flow.redirectUri, '...\n');
+    await new Promise((r) => setTimeout(r, 5 * 60 * 1000));
+    process.exit(0);
+  }
+
   if (argv.includes('--version') || argv.includes('-v')) {
     console.log(CTDO_VERSION);
     process.exit(0);

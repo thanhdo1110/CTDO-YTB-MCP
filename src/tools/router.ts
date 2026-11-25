@@ -20,6 +20,19 @@ import { extractVideoId, mapConcurrent, serializeOutput } from '../core/utils.js
 import { fetchTubeLabBalance } from '../providers/enrichers.js';
 import { hybridYouTube } from '../providers/hybrid-client.js';
 import { fetchInnerTubeTranscript } from '../providers/innertube.js';
+import {
+  bindMyChannel,
+  disconnectMyChannel,
+  getMyChannelOverview,
+  getMyChannelStatus,
+  manageMyPlaylist,
+  postOrReplyComment,
+  queryMyStudioAnalytics,
+  setMyVideoThumbnail,
+  startYouTubeOAuthFlow,
+  updateMyVideo,
+  uploadVideoToMyChannel,
+} from '../providers/oauth-studio.js';
 import { youtubeApiPool } from '../providers/youtube-api.js';
 
 /**
@@ -227,6 +240,73 @@ async function executeToolData(name: string, args: Record<string, any>): Promise
         format: args.subFormat,
         lang: args.lang,
       });
+
+    case 'yt_studio': {
+      const action = args.action || 'status';
+      switch (action) {
+        case 'status':
+          return getMyChannelStatus();
+        case 'bind_channel':
+          if (!args.channel) throw new Error('`channel` (@handle, URL, or ID) is required for bind_channel');
+          return bindMyChannel(args.channel);
+        case 'start_oauth':
+          return startYouTubeOAuthFlow({
+            clientSecretFile: args.clientSecretFile,
+            clientId: args.clientId,
+            clientSecret: args.clientSecret,
+          });
+        case 'my_overview':
+          return getMyChannelOverview(args.maxResults || 10);
+        case 'analytics':
+          return queryMyStudioAnalytics({
+            period: args.period,
+            dimensions: args.dimensions,
+            metrics: args.metrics,
+          });
+        case 'update_video':
+          if (!args.video) throw new Error('`video` is required for update_video');
+          return updateMyVideo({
+            video: args.video,
+            title: args.title,
+            description: args.description,
+            tags: args.tags,
+            privacyStatus: args.privacyStatus,
+          });
+        case 'set_thumbnail':
+          if (!args.video || !args.filePath) throw new Error('`video` and `filePath` are required');
+          return setMyVideoThumbnail(args.video, args.filePath);
+        case 'reply_comment':
+          if (!args.text) throw new Error('`text` is required for reply_comment');
+          return postOrReplyComment({
+            parentCommentId: args.parentCommentId,
+            video: args.video,
+            text: args.text,
+          });
+        case 'playlist_manage':
+          return manageMyPlaylist({
+            subAction: args.subAction || 'create',
+            title: args.title,
+            description: args.description,
+            privacyStatus: args.privacyStatus,
+            playlistId: args.playlistId,
+            video: args.video,
+          });
+        case 'upload_video':
+          if (!args.filePath || !args.title) throw new Error('`filePath` and `title` are required for upload_video');
+          return uploadVideoToMyChannel({
+            filePath: args.filePath,
+            title: args.title,
+            description: args.description,
+            tags: args.tags,
+            privacyStatus: args.privacyStatus,
+            publishAt: args.publishAt,
+          });
+        case 'disconnect':
+          return disconnectMyChannel(true);
+        default:
+          throw new Error(`Unknown yt_studio action: ${action}`);
+      }
+    }
 
     case 'yt_system':
     case 'get_credits_balance': {

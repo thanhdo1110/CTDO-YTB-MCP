@@ -90,10 +90,10 @@ test('Hybrid RAG KnowledgeBase indexes timestamped chunks and searches via FTS5 
   kb.removeVideo('testVid00001');
 });
 
-test('Tool Weight Modes expose exact expected counts (lite=4, compact=12, full=45)', () => {
+test('Tool Weight Modes expose exact expected counts (lite=4, compact=13, full=46)', () => {
   assert.equal(getToolsForMode('lite').length, 4);
-  assert.equal(getToolsForMode('compact').length, 12);
-  assert.equal(getToolsForMode('full').length, 45);
+  assert.equal(getToolsForMode('compact').length, 13);
+  assert.equal(getToolsForMode('full').length, 46);
 });
 
 test('Live MCP E2E over InMemoryTransport: tools, transcripts, channels, outliers, comments & compatibility aliases', async () => {
@@ -104,7 +104,7 @@ test('Live MCP E2E over InMemoryTransport: tools, transcripts, channels, outlier
 
   // 1. Verify compact tool list
   const listed = await client.listTools();
-  assert.equal(listed.tools.length, 12);
+  assert.equal(listed.tools.length, 13);
 
   // 2. Live Zero-API-Key Video Details + SponsorBlock + Dislikes
   const vidRes = await client.callTool({
