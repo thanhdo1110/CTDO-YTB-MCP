@@ -139,7 +139,7 @@ export async function startYouTubeOAuthFlow(options: {
   saveAccountState(state);
 
   const port = options.port || 8919;
-  const redirectUri = `http://127.0.0.1:${port}/oauth2callback`;
+  const redirectUri = `http://localhost:${port}`;
 
   // PKCE verifier & S256 challenge
   const codeVerifier = randomBytes(32).toString('base64url');
@@ -172,7 +172,7 @@ export async function startYouTubeOAuthFlow(options: {
   const callbackServer = createServer(async (req, res) => {
     try {
       const reqUrl = new URL(req.url || '/', redirectUri);
-      if (reqUrl.pathname !== '/oauth2callback') {
+      if (reqUrl.pathname !== '/' && reqUrl.pathname !== '/oauth2callback') {
         res.writeHead(404);
         res.end('Not Found');
         return;
@@ -253,17 +253,16 @@ export async function startYouTubeOAuthFlow(options: {
     }
   });
 
-  callbackServer.unref();
   await new Promise<void>((resolve, reject) => {
     callbackServer.once('error', reject);
-    callbackServer.listen(port, '127.0.0.1', () => resolve());
+    callbackServer.listen(port, () => resolve());
   });
 
-  // Auto-close after 5 minutes if unused
+  // Auto-close after 15 minutes if unused
   setTimeout(() => {
     callbackServer.close();
-    rejectDone(new Error('OAuth flow timed out after 5 minutes'));
-  }, 5 * 60 * 1000).unref();
+    rejectDone(new Error('OAuth flow timed out after 15 minutes'));
+  }, 15 * 60 * 1000).unref();
 
   return {
     authUrl: authUrl.toString(),
