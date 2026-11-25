@@ -425,12 +425,16 @@ export async function queryMyStudioAnalytics(options: {
     options.metrics ||
       'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost,likes,comments,shares'
   );
-  if (options.dimensions !== 'none') {
-    url.searchParams.set('dimensions', options.dimensions || 'day');
+  const dims = options.dimensions || 'day';
+  if (dims !== 'none') {
+    url.searchParams.set('dimensions', dims);
   }
   if (options.filters) url.searchParams.set('filters', options.filters);
-  if (options.sort) url.searchParams.set('sort', options.sort);
-  if (options.maxResults) url.searchParams.set('maxResults', String(options.maxResults));
+  const effectiveSort =
+    options.sort || (dims.includes('video') || dims.includes('TrafficSource') ? '-views' : undefined);
+  if (effectiveSort) url.searchParams.set('sort', effectiveSort);
+  const effectiveMax = options.maxResults || (dims.includes('video') ? 15 : undefined);
+  if (effectiveMax) url.searchParams.set('maxResults', String(effectiveMax));
 
   const data = await authedRequest(url.toString());
   const headers = (data?.columnHeaders || []).map((h: any) => h.name);
