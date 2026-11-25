@@ -275,6 +275,7 @@ export const CORE_POWER_TOOLS: Tool[] = [
         metrics: { type: 'string', description: 'Comma-separated YouTube Analytics v2 metrics' },
         video: { type: 'string', description: 'Video ID or URL' },
         filePath: { type: 'string', description: 'Local video or thumbnail file path' },
+        thumbnailPath: { type: 'string', description: 'Optional custom thumbnail path when uploading a video/Short' },
         title: { type: 'string' },
         description: { type: 'string' },
         tags: { type: 'array', items: { type: 'string' } },

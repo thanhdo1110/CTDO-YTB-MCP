@@ -300,6 +300,7 @@ async function executeToolData(name: string, args: Record<string, any>): Promise
             tags: args.tags,
             privacyStatus: args.privacyStatus,
             publishAt: args.publishAt,
+            thumbnailPath: args.thumbnailPath,
           });
         case 'disconnect':
           return disconnectMyChannel(true);

@@ -590,6 +590,7 @@ export async function uploadVideoToMyChannel(options: {
   categoryId?: string;
   privacyStatus?: 'private' | 'unlisted' | 'public';
   publishAt?: string;
+  thumbnailPath?: string;
 }) {
   const token = await getValidAccessToken();
   const fileBytes = await readFile(options.filePath);
@@ -642,7 +643,19 @@ export async function uploadVideoToMyChannel(options: {
     throw new Error(`Video upload transfer failed HTTP ${putRes.status}: ${await putRes.text()}`);
   }
 
-  return putRes.json();
+  const uploaded = (await putRes.json()) as any;
+  if (options.thumbnailPath && uploaded?.id) {
+    // Wait up to 45s for YouTube transcoding to classify Shorts (9:16) so shortsAspectRatio (1080x1920) activates
+    for (let i = 0; i < 9; i++) {
+      const p = await authedRequest(
+        `https://www.googleapis.com/youtube/v3/videos?part=processingDetails&id=${encodeURIComponent(uploaded.id)}`
+      ).catch(() => null);
+      if (p?.items?.[0]?.processingDetails?.processingStatus === 'succeeded') break;
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+    uploaded.thumbnailApplied = await setMyVideoThumbnail(uploaded.id, options.thumbnailPath);
+  }
+  return uploaded;
 }
 
 export function disconnectMyChannel(clearBoundChannel = true) {
