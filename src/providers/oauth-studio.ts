@@ -445,6 +445,227 @@ export async function queryMyStudioAnalytics(options: {
   return { startDate, endDate, rowCount: rows.length, rows };
 }
 
+function fitYouTubeTitle(raw: string): string {
+  const t = raw.trim();
+  return t.length <= 100 ? t : t.slice(0, 99).trim();
+}
+
+function fitYouTubeTags(tags?: string[]): string[] | undefined {
+  if (!tags || tags.length === 0) return undefined;
+  const out: string[] = [];
+  let len = 0;
+  for (const tag of tags) {
+    const clean = tag.trim();
+    if (!clean) continue;
+    const cost = clean.includes(' ') ? clean.length + 3 : clean.length + 1;
+    if (len + cost > 450) break;
+    out.push(clean);
+    len += cost;
+  }
+  return out;
+}
+
+/**
+ * List all uploaded videos on the authenticated owner channel (`publicOnly = true` by default).
+ */
+export async function listMyUploadedVideos(publicOnly = true) {
+  const me = await authedRequest(
+    'https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true'
+  );
+  const uploadsId = me?.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+  if (!uploadsId) return [];
+
+  const ids = new Set<string>();
+  let pageToken = '';
+  do {
+    const pl = await authedRequest(
+      `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${encodeURIComponent(
+        uploadsId
+      )}&maxResults=50${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`
+    );
+    for (const it of pl?.items || []) {
+      if (it?.contentDetails?.videoId) ids.add(it.contentDetails.videoId);
+    }
+    pageToken = pl?.nextPageToken || '';
+  } while (pageToken);
+
+  const allIds = Array.from(ids);
+  const results: any[] = [];
+  for (let i = 0; i < allIds.length; i += 50) {
+    const chunk = allIds.slice(i, i + 50);
+    const vRes = await authedRequest(
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet,status,contentDetails,statistics&id=${chunk.join(',')}&maxResults=50`
+    );
+    for (const v of vRes?.items || []) {
+      if (publicOnly && v?.status?.privacyStatus !== 'public') continue;
+      if (v?.contentDetails?.duration === 'P0D') continue; // skip empty unstreamed live placeholders
+      results.push({
+        id: v.id,
+        title: v.snippet?.title,
+        privacyStatus: v.status?.privacyStatus,
+        duration: v.contentDetails?.duration,
+        categoryId: v.snippet?.categoryId,
+        tagCount: (v.snippet?.tags || []).length,
+        views: Number(v.statistics?.viewCount || 0),
+        publishedAt: v.snippet?.publishedAt,
+      });
+    }
+  }
+  return results;
+}
+
+/**
+ * Update Channel Banner (2560x1440 Full-Bleed PNG) + Channel SEO Description/Keywords + Sync Localizations (`vi_VN`, `en_US`)
+ * using separate PUT calls to satisfy YouTube API's part isolation constraint.
+ */
+export async function updateMyChannelBranding(options: {
+  bannerPath?: string;
+  description?: string;
+  keywords?: string;
+  country?: string;
+  channelTitleForLocalization?: string;
+}) {
+  const chGet = await authedRequest(
+    'https://www.googleapis.com/youtube/v3/channels?part=snippet,brandingSettings,localizations&mine=true'
+  );
+  const ch = chGet?.items?.[0];
+  if (!ch?.id) throw new Error('Authenticated YouTube channel not found.');
+
+  let bannerExternalUrl = ch.brandingSettings?.image?.bannerExternalUrl;
+  if (options.bannerPath) {
+    const bannerBytes = await readFile(options.bannerPath);
+    const mime = options.bannerPath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+    const bRes = await authedRequest(
+      'https://www.googleapis.com/upload/youtube/v3/channelBanners/insert',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': mime,
+          'Content-Length': String(bannerBytes.byteLength),
+        },
+        body: bannerBytes,
+      }
+    );
+    bannerExternalUrl = bRes?.url || bannerExternalUrl;
+  }
+
+  const curChannel = { ...(ch.brandingSettings?.channel || {}) };
+  delete curChannel.title;
+  delete curChannel.defaultLanguage;
+
+  if (options.description !== undefined) {
+    curChannel.description = options.description.slice(0, 995);
+  }
+  if (options.keywords !== undefined) {
+    curChannel.keywords = options.keywords.slice(0, 495);
+  }
+  if (options.country) {
+    curChannel.country = options.country;
+  }
+
+  const brandingRes = await authedRequest(
+    'https://www.googleapis.com/youtube/v3/channels?part=brandingSettings',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: ch.id,
+        brandingSettings: {
+          channel: curChannel,
+          ...(bannerExternalUrl ? { image: { bannerExternalUrl } } : {}),
+        },
+      }),
+    }
+  );
+
+  // Sync localizations separately so vi_VN / en_US never display outdated descriptions
+  if (options.description !== undefined || options.channelTitleForLocalization) {
+    const locTitle = options.channelTitleForLocalization || ch.snippet?.title || 'Channel';
+    const locDesc = curChannel.description || ch.snippet?.description || '';
+    await authedRequest('https://www.googleapis.com/youtube/v3/channels?part=localizations', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: ch.id,
+        localizations: {
+          ...(ch.localizations || {}),
+          vi_VN: { title: locTitle, description: locDesc },
+          en_US: { title: locTitle, description: locDesc },
+        },
+      }),
+    }).catch(() => undefined);
+  }
+
+  return {
+    channelId: ch.id,
+    bannerExternalUrl: brandingRes?.brandingSettings?.image?.bannerExternalUrl,
+    descriptionLength: curChannel.description?.length || 0,
+  };
+}
+
+/**
+ * Upsert Official Creator Top Comment:
+ * Updates existing owner top-level comment in-place (preserving any existing Pin badge!),
+ * or creates a new Creator Comment with retry backoff if video was just uploaded.
+ */
+export async function upsertMyCreatorComment(videoInput: string, text: string) {
+  const videoId = extractVideoId(videoInput);
+  const state = readAccountState();
+  let myChannelId = state.boundChannel?.id;
+  if (!myChannelId) {
+    const me = await authedRequest('https://www.googleapis.com/youtube/v3/channels?part=id&mine=true');
+    myChannelId = me?.items?.[0]?.id;
+  }
+
+  const existingList = await authedRequest(
+    `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${encodeURIComponent(videoId)}&maxResults=30`
+  ).catch(() => null);
+
+  const existingOwner = (existingList?.items || []).find(
+    (it: any) =>
+      myChannelId &&
+      it?.snippet?.topLevelComment?.snippet?.authorChannelId?.value === myChannelId
+  );
+
+  if (existingOwner?.id) {
+    const updated = await authedRequest('https://www.googleapis.com/youtube/v3/comments?part=snippet', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: existingOwner.id,
+        snippet: { textOriginal: text },
+      }),
+    });
+    return { mode: 'updated_preserving_pin', commentId: updated?.id || existingOwner.id };
+  }
+
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      const created = await authedRequest(
+        'https://www.googleapis.com/youtube/v3/commentThreads?part=snippet',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            snippet: {
+              videoId,
+              topLevelComment: {
+                snippet: { textOriginal: text },
+              },
+            },
+          }),
+        }
+      );
+      return { mode: 'created_new', commentId: created?.id };
+    } catch (err) {
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 3500));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('Failed to post creator comment');
+}
+
 /**
  * Update metadata/privacy of your own YouTube video!
  */
@@ -454,6 +675,7 @@ export async function updateMyVideo(options: {
   description?: string;
   tags?: string[];
   categoryId?: string;
+  defaultLanguage?: string;
   privacyStatus?: 'public' | 'unlisted' | 'private';
 }) {
   const videoId = extractVideoId(options.video);
@@ -467,14 +689,20 @@ export async function updateMyVideo(options: {
     id: videoId,
     snippet: {
       ...item.snippet,
-      title: options.title ?? item.snippet.title,
+      title: options.title ? fitYouTubeTitle(options.title) : item.snippet.title,
       description: options.description ?? item.snippet.description,
-      tags: options.tags ?? item.snippet.tags,
-      categoryId: options.categoryId ?? item.snippet.categoryId ?? '22',
+      tags: options.tags ? fitYouTubeTags(options.tags) : item.snippet.tags,
+      categoryId: options.categoryId ?? item.snippet.categoryId ?? '28',
+      ...(options.defaultLanguage
+        ? {
+            defaultLanguage: options.defaultLanguage,
+            defaultAudioLanguage: options.defaultLanguage,
+          }
+        : {}),
     },
     status: {
-      ...item.status,
       privacyStatus: options.privacyStatus ?? item.status?.privacyStatus,
+      selfDeclaredMadeForKids: false,
     },
   };
 
@@ -588,12 +816,15 @@ export async function uploadVideoToMyChannel(options: {
   description?: string;
   tags?: string[];
   categoryId?: string;
+  defaultLanguage?: string;
   privacyStatus?: 'private' | 'unlisted' | 'public';
   publishAt?: string;
   thumbnailPath?: string;
+  creatorComment?: string;
 }) {
   const token = await getValidAccessToken();
   const fileBytes = await readFile(options.filePath);
+  const mime = options.filePath.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4';
 
   // Step 1: Initiate resumable upload session
   const initRes = await fetch(
@@ -604,17 +835,19 @@ export async function uploadVideoToMyChannel(options: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json; charset=UTF-8',
         'X-Upload-Content-Length': String(fileBytes.byteLength),
-        'X-Upload-Content-Type': 'video/*',
+        'X-Upload-Content-Type': mime,
       },
       body: JSON.stringify({
         snippet: {
-          title: options.title,
+          title: fitYouTubeTitle(options.title),
           description: options.description || '',
-          tags: options.tags,
-          categoryId: options.categoryId || '22',
+          tags: fitYouTubeTags(options.tags),
+          categoryId: options.categoryId || '28',
+          defaultLanguage: options.defaultLanguage || 'vi',
+          defaultAudioLanguage: options.defaultLanguage || 'vi',
         },
         status: {
-          privacyStatus: options.publishAt ? 'private' : options.privacyStatus || 'private',
+          privacyStatus: options.publishAt ? 'private' : options.privacyStatus || 'public',
           publishAt: options.publishAt,
           selfDeclaredMadeForKids: false,
         },
@@ -634,7 +867,7 @@ export async function uploadVideoToMyChannel(options: {
     method: 'PUT',
     headers: {
       'Content-Length': String(fileBytes.byteLength),
-      'Content-Type': 'video/*',
+      'Content-Type': mime,
     },
     body: fileBytes,
   });
@@ -645,8 +878,8 @@ export async function uploadVideoToMyChannel(options: {
 
   const uploaded = (await putRes.json()) as any;
   if (options.thumbnailPath && uploaded?.id) {
-    // Wait up to 45s for YouTube transcoding to classify Shorts (9:16) so shortsAspectRatio (1080x1920) activates
-    for (let i = 0; i < 9; i++) {
+    // Wait up to 60s for YouTube transcoding (`processingStatus === 'succeeded'`) so 9:16 Shorts activate `shortsAspectRatio=1080x1920`
+    for (let i = 0; i < 12; i++) {
       const p = await authedRequest(
         `https://www.googleapis.com/youtube/v3/videos?part=processingDetails&id=${encodeURIComponent(uploaded.id)}`
       ).catch(() => null);
@@ -654,6 +887,12 @@ export async function uploadVideoToMyChannel(options: {
       await new Promise((r) => setTimeout(r, 5000));
     }
     uploaded.thumbnailApplied = await setMyVideoThumbnail(uploaded.id, options.thumbnailPath);
+  }
+
+  if (options.creatorComment && uploaded?.id) {
+    uploaded.commentPosted = await upsertMyCreatorComment(uploaded.id, options.creatorComment).catch(
+      (e) => ({ error: e instanceof Error ? e.message : String(e) })
+    );
   }
   return uploaded;
 }

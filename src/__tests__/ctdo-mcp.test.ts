@@ -176,7 +176,7 @@ test('Live MCP E2E over InMemoryTransport: tools, transcripts, channels, outlier
     arguments: {},
   });
   const aliasJson = JSON.parse((aliasRes.content as any)[0].text);
-  assert.equal(aliasJson.server, 'CTDO YTB MCP v1.0.0');
+  assert.equal(aliasJson.server, 'CTDO YTB MCP v1.2.0');
 
   // 8. Verify MCP Resource read (`youtube://system/telemetry`)
   const resRead = await client.readResource({ uri: 'youtube://system/telemetry' });

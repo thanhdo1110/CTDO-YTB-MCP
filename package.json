@@ -1,6 +1,6 @@
 {
   "name": "ctdo-ytb-mcp",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "mcpName": "io.github.thanhdo1110/ctdo-ytb-mcp",
   "description": "CTDO YTB MCP — Ultra-fast, lightweight, zero-bloat YouTube MCP Server synthesizing InnerTube (0-API-key), Multi-Key YouTube Data API v3, TubeLab Outlier & Niche Analytics, SponsorBlock, Comment Mining, and Local SQLite FTS5/Vector RAG.",
   "type": "module",

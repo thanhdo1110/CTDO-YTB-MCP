@@ -7,6 +7,10 @@ import {
   mineVideoComments,
 } from '../analytics/creator-niche.js';
 import {
+  renderAppleHIGBanner,
+  renderAppleHIGThumbnail,
+} from '../analytics/apple-hig-renderer.js';
+import {
   findConsistentOutlierChannels,
   findRelatedChannels,
   searchOutlierVideos,
@@ -25,13 +29,16 @@ import {
   disconnectMyChannel,
   getMyChannelOverview,
   getMyChannelStatus,
+  listMyUploadedVideos,
   manageMyPlaylist,
   postOrReplyComment,
   queryMyStudioAnalytics,
   setMyVideoThumbnail,
   startYouTubeOAuthFlow,
+  updateMyChannelBranding,
   updateMyVideo,
   uploadVideoToMyChannel,
+  upsertMyCreatorComment,
 } from '../providers/oauth-studio.js';
 import { youtubeApiPool } from '../providers/youtube-api.js';
 
@@ -257,6 +264,8 @@ async function executeToolData(name: string, args: Record<string, any>): Promise
           });
         case 'my_overview':
           return getMyChannelOverview(args.maxResults || 10);
+        case 'list_my_videos':
+          return listMyUploadedVideos(args.publicOnly !== false);
         case 'analytics':
           return queryMyStudioAnalytics({
             period: args.period,
@@ -272,9 +281,52 @@ async function executeToolData(name: string, args: Record<string, any>): Promise
             tags: args.tags,
             privacyStatus: args.privacyStatus,
           });
+        case 'update_channel_branding':
+          return updateMyChannelBranding({
+            bannerPath: args.filePath,
+            description: args.description,
+            keywords: args.keywords,
+            channelTitleForLocalization: args.title,
+          });
         case 'set_thumbnail':
           if (!args.video || !args.filePath) throw new Error('`video` and `filePath` are required');
           return setMyVideoThumbnail(args.video, args.filePath);
+        case 'render_hig_thumbnail': {
+          const outPath = args.filePath || `/tmp/ctdo_hig_${Date.now()}.jpg`;
+          const rendered = await renderAppleHIGThumbnail({
+            videoOrFramePath: args.video || args.filePath,
+            outputPath: outPath,
+            aspect: args.aspect,
+            pill: args.pill || 'CTDOTEAM',
+            symbol: args.symbol,
+            accent: args.accent,
+            line1: args.line1 || args.title || '',
+            line2: args.line2 || '',
+            spec: args.spec || '',
+          });
+          if (args.applyImmediately && args.video) {
+            const uploaded = await setMyVideoThumbnail(args.video, rendered.outputPath);
+            return { ...rendered, uploaded };
+          }
+          return rendered;
+        }
+        case 'render_hig_banner': {
+          const outPath = args.filePath || `/tmp/ctdo_hig_banner_${Date.now()}.png`;
+          const rendered = await renderAppleHIGBanner({
+            outputPath: outPath,
+            brandName: args.title || 'CTDOTEAM',
+            handle: args.channel || '@thanhdo1110',
+            subtitle: args.spec || 'VPhone & FairPlay  ·  Theos & TrollStore  ·  Dear ImGui  ·  Open Source Tools',
+          });
+          if (args.applyImmediately) {
+            const applied = await updateMyChannelBranding({ bannerPath: rendered.outputPath });
+            return { ...rendered, applied };
+          }
+          return rendered;
+        }
+        case 'upsert_creator_comment':
+          if (!args.video || !args.text) throw new Error('`video` and `text` are required');
+          return upsertMyCreatorComment(args.video, args.text);
         case 'reply_comment':
           if (!args.text) throw new Error('`text` is required for reply_comment');
           return postOrReplyComment({
@@ -301,6 +353,7 @@ async function executeToolData(name: string, args: Record<string, any>): Promise
             privacyStatus: args.privacyStatus,
             publishAt: args.publishAt,
             thumbnailPath: args.thumbnailPath,
+            creatorComment: args.creatorComment || args.text,
           });
         case 'disconnect':
           return disconnectMyChannel(true);
@@ -316,7 +369,7 @@ async function executeToolData(name: string, args: Record<string, any>): Promise
       }
       const tubelab = await fetchTubeLabBalance();
       return {
-        server: 'CTDO YTB MCP v1.0.0',
+        server: 'CTDO YTB MCP v1.2.0',
         toolWeightMode: process.env.CTDO_TOOL_MODE || 'compact',
         zeroApiKeyEngine: 'InnerTube 2026 Active (IOS + ANDROID + WEB)',
         youtubeApiPool: youtubeApiPool.getStatus(),

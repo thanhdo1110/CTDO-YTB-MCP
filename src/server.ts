@@ -21,7 +21,7 @@ import { youtubeApiPool } from './providers/youtube-api.js';
 import { getToolsForMode } from './tools/definitions.js';
 import { dispatchToolCall } from './tools/router.js';
 
-export const CTDO_VERSION = '1.0.0';
+export const CTDO_VERSION = '1.2.0';
 
 export function createCtdoMcpServer(modeOverride?: ToolWeightMode): Server {
   const server = new Server(
