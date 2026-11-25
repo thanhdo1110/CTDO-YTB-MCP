@@ -39,11 +39,18 @@ async function main() {
 
   if (argv[0] === 'login' || argv[0] === 'auth') {
     const secretFile = argv.find((a) => a.startsWith('--client-secret='))?.split('=')[1];
-    const flow = await startYouTubeOAuthFlow({ clientSecretFile: secretFile });
-    console.log('\n🔐 Open this URL in your browser to connect your YouTube Studio channel:\n');
+    const clientId = argv.find((a) => a.startsWith('--client-id='))?.split('=')[1];
+    const clientSecret = argv.find((a) => a.startsWith('--secret='))?.split('=')[1];
+    const flow = await startYouTubeOAuthFlow({ clientSecretFile: secretFile, clientId, clientSecret });
+    console.log('\n🔐 Mở đường dẫn sau trên trình duyệt để cấp quyền YouTube Studio cho CTDO YTB MCP:\n');
     console.log(flow.authUrl);
-    console.log('\nWaiting up to 5 minutes for Google OAuth callback on', flow.redirectUri, '...\n');
-    await new Promise((r) => setTimeout(r, 5 * 60 * 1000));
+    console.log('\n⏳ Đang chờ xác thực từ Google tại', flow.redirectUri, '...\n');
+    if (process.platform === 'darwin') {
+      const { execFile } = await import('node:child_process');
+      execFile('open', [flow.authUrl]);
+    }
+    const ch = await flow.waitForCompletion();
+    console.log('✅ Kết nối thành công kênh:', ch?.title || 'YouTube Account', ch?.url || '');
     process.exit(0);
   }
 

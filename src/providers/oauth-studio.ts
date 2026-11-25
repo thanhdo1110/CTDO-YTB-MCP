@@ -127,7 +127,12 @@ export async function startYouTubeOAuthFlow(options: {
   clientSecretFile?: string;
   port?: number;
   monetaryScope?: boolean;
-}): Promise<{ authUrl: string; redirectUri: string; instructions: string }> {
+}): Promise<{
+  authUrl: string;
+  redirectUri: string;
+  instructions: string;
+  waitForCompletion: () => Promise<StoredAccountState['boundChannel'] | undefined>;
+}> {
   const state = readAccountState();
   const client = resolveOAuthClient(state, options);
   state.oauthClient = client;
@@ -153,6 +158,15 @@ export async function startYouTubeOAuthFlow(options: {
   authUrl.searchParams.set('code_challenge', codeChallenge);
   authUrl.searchParams.set('code_challenge_method', 'S256');
   authUrl.searchParams.set('state', csrfState);
+
+  let resolveDone!: (ch: StoredAccountState['boundChannel'] | undefined) => void;
+  let rejectDone!: (err: Error) => void;
+  const completionPromise = new Promise<StoredAccountState['boundChannel'] | undefined>((res, rej) => {
+    resolveDone = res;
+    rejectDone = rej;
+  });
+  // Prevent unhandled rejection when caller doesn't await waitForCompletion()
+  completionPromise.catch(() => undefined);
 
   // Spawn temporary 5-minute callback server in background
   const callbackServer = createServer(async (req, res) => {
@@ -229,11 +243,13 @@ export async function startYouTubeOAuthFlow(options: {
         <h1>✅ Đã kết nối kênh "${chTitle}" vào CTDO YTB MCP!</h1>
         <p>Bạn có thể đóng tab này và quay lại cửa sổ chat AI để sử dụng YouTube Studio & Quản trị kênh.</p>
       </body></html>`);
+      resolveDone(updated.boundChannel);
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end(`OAuth callback error: ${err instanceof Error ? err.message : String(err)}`);
+      rejectDone(err instanceof Error ? err : new Error(String(err)));
     } finally {
-      setTimeout(() => callbackServer.close(), 1000);
+      setTimeout(() => callbackServer.close(), 500);
     }
   });
 
@@ -244,13 +260,17 @@ export async function startYouTubeOAuthFlow(options: {
   });
 
   // Auto-close after 5 minutes if unused
-  setTimeout(() => callbackServer.close(), 5 * 60 * 1000).unref();
+  setTimeout(() => {
+    callbackServer.close();
+    rejectDone(new Error('OAuth flow timed out after 5 minutes'));
+  }, 5 * 60 * 1000).unref();
 
   return {
     authUrl: authUrl.toString(),
     redirectUri,
     instructions:
       'Open `authUrl` in your browser, sign in to your YouTube channel Google account, and click Allow. CTDO YTB MCP will automatically capture the token and bind your channel.',
+    waitForCompletion: () => completionPromise,
   };
 }
 
