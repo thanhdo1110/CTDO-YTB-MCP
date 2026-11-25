@@ -1,0 +1,65 @@
+{
+  "name": "ctdo-ytb-mcp",
+  "version": "1.0.0",
+  "mcpName": "io.github.thanhdo1110/ctdo-ytb-mcp",
+  "description": "CTDO YTB MCP — Ultra-fast, lightweight, zero-bloat YouTube MCP Server synthesizing InnerTube (0-API-key), Multi-Key YouTube Data API v3, TubeLab Outlier & Niche Analytics, SponsorBlock, Comment Mining, and Local SQLite FTS5/Vector RAG.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "ctdo-ytb-mcp": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "start:http": "MCP_TRANSPORT=http node dist/cli.js",
+    "dev": "tsc --watch",
+    "test": "npm run build && node --test dist/__tests__/*.test.js",
+    "bench": "npm run build && node dist/__tests__/benchmark.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "youtube",
+    "youtube-mcp",
+    "ctdo",
+    "innertube",
+    "outliers",
+    "tubelab",
+    "transcript",
+    "sponsorblock",
+    "niche-research",
+    "rag",
+    "sqlite-fts5",
+    "ai-agents",
+    "claude",
+    "cursor",
+    "antigravity"
+  ],
+  "author": "CTDO (thanhdo1110)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thanhdo1110/CTDO-YTB-MCP.git"
+  },
+  "homepage": "https://github.com/thanhdo1110/CTDO-YTB-MCP#readme",
+  "bugs": {
+    "url": "https://github.com/thanhdo1110/CTDO-YTB-MCP/issues"
+  }
+}
